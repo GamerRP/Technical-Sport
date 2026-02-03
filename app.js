@@ -39,7 +39,7 @@ let userUsername = '';
 let chatUnsubscribe = null;
 
 // Specific Owners
-const OWNERS = ['tallatlatif001178@gmail.com', 'aftabharis242@gmail.com'];
+const OWNERS = ['tallatlatif001178@gmail.com', 'aftabharis242@gmail.com', 'muhammad.bilalpk23@gmail.com'];
 
 // --- NOTIFICATION SYSTEM ---
 function showToast(message, type = 'success') {
@@ -495,4 +495,5 @@ window.app.resetAdminStats = async () => {
     snap.forEach(d => updateDoc(doc(db, "complaints", d.id), { status: 'archived' }));
     showToast("Stats reset");
     loadAdminStats();
+
 };
