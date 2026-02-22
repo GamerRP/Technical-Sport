@@ -3,182 +3,866 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GamerRP | Support Portal</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/x-icon" href="logo2.jpg">
+    <title>Gamer RP Support Portal</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in': 'fadeIn 0.4s ease-out forwards',
+                        'slide-up': 'slideUp 0.4s ease-out forwards',
+                    },
+                    keyframes: {
+                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        slideUp: { '0%': { transform: 'translateY(15px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #0B0F19; color: #e5e7eb; }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.344.0",
+            "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+        }
+    }
+    </script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
+    <div id="root"></div>
 
-    <div id="toast-container"></div>
+    <script type="text/babel" data-type="module">
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
+import { 
+  Gamepad2, ShieldAlert, CheckCircle, Clock, Users, UserCog, Settings, 
+  LogOut, UploadCloud, FileVideo, FileImage, X, Search, ChevronRight, 
+  Mail, MessageSquare, AlertTriangle, ShieldCheck
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, setPersistence, browserLocalPersistence, browserSessionPersistence,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, collection, getDocs, doc, setDoc, updateDoc, onSnapshot, serverTimestamp 
+} from 'firebase/firestore';
 
-    <nav id="navbar" class="hidden">
-        <div class="logo">GamerRP Support</div>
-        <div class="menu-toggle" onclick="window.app.toggleMenu()">
-            <i class="fas fa-bars"></i>
+// --- FIREBASE CONFIGURATION ---
+const firebaseConfig = {
+  apiKey: "AIzaSyCoZKH-CSSdEvfv7IsPz46dXKs26im14SM",
+  authDomain: "gamerrp-5a625.firebaseapp.com",
+  databaseURL: "https://gamerrp-5a625-default-rtdb.firebaseio.com",
+  projectId: "gamerrp-5a625",
+  storageBucket: "gamerrp-5a625.firebasestorage.app",
+  messagingSenderId: "666874953898",
+  appId: "1:666874953898:web:f896b8be0b578ad63910d3",
+  measurementId: "G-DS01D65810"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- CONSTANTS ---
+const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dyyyxbzzt/auto/upload";
+const CLOUDINARY_PRESET = "gamer_portal";
+const OWNER_EMAILS = ['tallatlatif001178@gmail.com', 'aftabharis242@gmail.com'];
+
+// --- CONTEXTS ---
+const ToastContext = createContext(null);
+const AuthContext = createContext(null);
+
+// --- TOAST PROVIDER ---
+const ToastProvider = ({ children }) => {
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = (message, type = 'success') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
+  return (
+    <ToastContext.Provider value={{ addToast }}>
+      {children}
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg text-white transform transition-all duration-300 animate-slide-up ${toast.type === 'error' ? 'bg-red-500' : toast.type === 'success' ? 'bg-emerald-500' : 'bg-blue-500'}`}>
+            {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+            <p className="font-medium text-sm">{toast.message}</p>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+};
+
+// --- AUTH PROVIDER ---
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { addToast } = useContext(ToastContext);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const unsubscribeDoc = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setUserData(docSnap.data());
+          }
+          setLoading(false);
+        });
+        return () => unsubscribeDoc();
+      } else {
+        setUser(null);
+        setUserData(null);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      addToast("Successfully logged out!", "info");
+    } catch (error) {
+      addToast("Logout failed.", "error");
+    }
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, userData, loading, logout }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
+};
+
+// --- UI COMPONENTS ---
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-gray-900/60 backdrop-blur-md border border-gray-700/50 rounded-2xl shadow-2xl ${className}`}>
+    {children}
+  </div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', className = "", disabled = false, type = "button" }) => {
+  const baseStyle = "px-4 py-2 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed";
+  const variants = {
+    primary: "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/30",
+    secondary: "bg-gray-800 hover:bg-gray-700 text-white border border-gray-600",
+    danger: "bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/30",
+    success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className}`}>
+      {children}
+    </button>
+  );
+};
+
+const Input = ({ label, type = "text", value, onChange, placeholder, required = false, className = "" }) => (
+  <div className={`flex flex-col gap-1.5 ${className}`}>
+    {label && <label className="text-sm font-medium text-gray-300">{label}</label>}
+    <input 
+      type={type} value={value} onChange={onChange} placeholder={placeholder} required={required}
+      className="bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+    />
+  </div>
+);
+
+// --- PAGES ---
+
+// 1. Auth Page (Login & Register)
+const AuthPage = () => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { addToast } = useContext(ToastContext);
+
+  const checkUsernameUnique = async (uname) => {
+    const usersSnap = await getDocs(collection(db, 'users'));
+    let isUnique = true;
+    usersSnap.forEach((doc) => {
+      if (doc.data().username.toLowerCase() === uname.toLowerCase()) isUnique = false;
+    });
+    return isUnique;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      if (isLogin) {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+        await signInWithEmailAndPassword(auth, email, password);
+        addToast("You successfully logged in!", "success");
+      } else {
+        if (username.length < 3) {
+          addToast("Username must be at least 3 characters", "error");
+          setLoading(false);
+          return;
+        }
+        const isUnique = await checkUsernameUnique(username);
+        if (!isUnique) {
+          addToast("Username already exists. Please choose another.", "error");
+          setLoading(false);
+          return;
+        }
+
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const role = OWNER_EMAILS.includes(email.toLowerCase()) ? 'owner' : 'user';
+        
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          uid: userCredential.user.uid,
+          email: email.toLowerCase(),
+          username: username,
+          role: role,
+          createdAt: new Date().toISOString(),
+          stats: { respondedCount: 0, startDate: null, endDate: null }
+        });
+        
+        addToast("Registration successful! Welcome.", "success");
+      }
+    } catch (error) {
+      let msg = error.message;
+      if (error.code === 'auth/invalid-credential') msg = "Invalid email or password.";
+      if (error.code === 'auth/email-already-in-use') msg = "Email is already registered.";
+      addToast(msg, "error");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600/20 rounded-full blur-[100px]" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600/20 rounded-full blur-[100px]" />
+      
+      <Card className="w-full max-w-md p-8 animate-fade-in relative z-10">
+        <div className="flex justify-center mb-6">
+          <div className="bg-blue-500/20 p-3 rounded-full">
+            <Gamepad2 size={40} className="text-blue-400" />
+          </div>
         </div>
-        <div class="nav-links" id="nav-links">
-            <button onclick="window.app.showTab('home')">Home</button>
-            <button onclick="window.app.showTab('global-chat')">Global Chat</button>
-            <button onclick="window.app.showTab('my-complaints')">My Complaints</button>
-            <button onclick="window.app.showTab('contact')">Contact</button>
-            <button id="nav-admin" class="hidden" onclick="window.app.showTab('admin-area')">Admin Area</button>
-            <button id="nav-owner" class="hidden" onclick="window.app.showTab('owner-panel')">Owner Panel</button>
-            <button onclick="window.app.logout()" class="logout-btn">Logout</button>
-        </div>
-    </nav>
+        <h2 className="text-3xl font-bold text-center text-white mb-2">{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
+        <p className="text-gray-400 text-center mb-8">{isLogin ? 'Login to access the portal' : 'Register to submit complaints'}</p>
 
-    <div id="auth-section">
-        <div class="auth-container">
-            <h2>Welcome</h2>
-            <div class="tabs">
-                <button id="tab-login" class="active">Login</button>
-                <button id="tab-register">Register</button>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {!isLogin && (
+            <Input label="Username" placeholder="e.g. ProGamer123" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          )}
+          <Input type="email" label="Email Address" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Input type="password" label="Password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          
+          {isLogin && (
+            <div className="flex items-center gap-2 mt-2">
+              <input 
+                type="checkbox" id="remember" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900 bg-gray-800"
+              />
+              <label htmlFor="remember" className="text-sm text-gray-300 cursor-pointer">Stay logged in</label>
             </div>
+          )}
 
-            <form id="login-form">
-                <input type="email" id="login-email" placeholder="Email" required>
-                <input type="password" id="login-pass" placeholder="Password" required>
-                <label class="checkbox-container">
-                    <input type="checkbox" id="stay-logged-in"> Stay Logged In
-                </label>
-                <button type="submit">Login</button>
-            </form>
+          <Button type="submit" className="w-full mt-6" disabled={loading}>
+            {loading ? 'Processing...' : (isLogin ? 'Login' : 'Register')}
+          </Button>
+        </form>
 
-            <form id="register-form" class="hidden">
-                <input type="text" id="reg-username" placeholder="Username (Unique)" required>
-                <input type="email" id="reg-email" placeholder="Email" required>
-                <input type="password" id="reg-pass" placeholder="Password" required>
-                <button type="submit">Register</button>
-            </form>
-        </div>
+        <p className="text-center text-gray-400 mt-6 text-sm">
+          {isLogin ? "Don't have an account? " : "Already have an account? "}
+          <button onClick={() => setIsLogin(!isLogin)} className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
+            {isLogin ? 'Register here' : 'Login here'}
+          </button>
+        </p>
+      </Card>
     </div>
+  );
+};
 
-    <div id="app-content" class="hidden">
+// 2. Home Tab (Create Complaint)
+const HomeTab = () => {
+  const { user, userData } = useContext(AuthContext);
+  const { addToast } = useContext(ToastContext);
+  const [formData, setFormData] = useState({ gameNickname: '', complaintAgainst: '', description: '' });
+  const [files, setFiles] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-        <section id="home" class="tab-content">
-            <div class="hero">
-                <h1>The Ultimate Gaming Experience</h1>
-                <p>Welcome to our world! If you encounter issues or rule-breakers, we are here to help.</p>
-                <button class="cta-btn" onclick="window.app.toggleComplaintForm()">Create Complaint</button>
+  const handleFileChange = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    setFiles(prev => [...prev, ...selectedFiles]);
+  };
+
+  const uploadFiles = async () => {
+    const urls = [];
+    for (const file of files) {
+      const data = new FormData();
+      data.append('file', file);
+      data.append('upload_preset', CLOUDINARY_PRESET);
+      try {
+        const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: data });
+        const json = await res.json();
+        urls.push({ url: json.secure_url, type: file.type.startsWith('video/') ? 'video' : 'image' });
+      } catch (err) {
+        console.error("Upload error", err);
+      }
+    }
+    return urls;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.gameNickname || !formData.complaintAgainst || !formData.description) {
+      addToast("Please fill all text fields.", "error"); return;
+    }
+    setIsSubmitting(true);
+    
+    try {
+      const mediaUrls = await uploadFiles();
+      const complaintRef = doc(collection(db, 'complaints'));
+      await setDoc(complaintRef, {
+        id: complaintRef.id,
+        complaintNumber: Math.floor(100000 + Math.random() * 900000),
+        uid: user.uid,
+        username: userData.username,
+        ...formData,
+        mediaUrls,
+        status: 'pending',
+        adminReply: null,
+        repliedBy: null,
+        repliedAt: null,
+        createdAt: new Date().toISOString()
+      });
+      addToast("Complaint submitted successfully!", "success");
+      setFormData({ gameNickname: '', complaintAgainst: '', description: '' });
+      setFiles([]);
+    } catch (error) {
+      addToast("Failed to submit complaint.", "error");
+    }
+    setIsSubmitting(false);
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <Card className="p-8 text-center bg-gradient-to-br from-blue-900/40 to-purple-900/40 border-none relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-12 opacity-10"><Gamepad2 size={200} /></div>
+        <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 mb-4">
+          Welcome to Gamer RP Support
+        </h1>
+        <p className="text-gray-300 text-lg md:text-xl max-w-3xl mx-auto leading-relaxed relative z-10">
+          Immerse yourself in the ultimate roleplaying experience! Our game offers unparalleled realism, thrilling missions, and a vibrant community. However, we know that sometimes things don't go as planned. Whether you've encountered a rule-breaker or an unexpected glitch, our dedicated support team is here to ensure your gameplay remains fair, fun, and uninterrupted. Report your issues below, and we'll handle the rest!
+        </p>
+      </Card>
+
+      <Card className="p-6 md:p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <ShieldAlert className="text-red-400" size={28} />
+          <h2 className="text-2xl font-bold text-white">Create a Complaint</h2>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <Input label="Your In-Game Nickname" value={formData.gameNickname} onChange={e => setFormData({...formData, gameNickname: e.target.value})} placeholder="Your RP Name" />
+            <Input label="Complaint Against (Username/ID)" value={formData.complaintAgainst} onChange={e => setFormData({...formData, complaintAgainst: e.target.value})} placeholder="Who broke the rules?" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-300">Description of Event</label>
+            <textarea 
+              className="bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[120px]"
+              placeholder="Explain exactly what happened..."
+              value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-300">Proofs / Evidence (Screenshots or Videos)</label>
+            <div className="border-2 border-dashed border-gray-600 hover:border-blue-500 transition-colors rounded-xl p-6 flex flex-col items-center justify-center bg-gray-800/30 cursor-pointer relative">
+              <input type="file" multiple accept="image/*,video/*" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+              <UploadCloud size={40} className="text-gray-400 mb-2" />
+              <p className="text-gray-300 font-medium">Click or drag media here to upload</p>
+              <p className="text-gray-500 text-sm mt-1">Supports Images and Videos</p>
             </div>
+            {files.length > 0 && (
+              <div className="flex flex-wrap gap-3 mt-3">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700">
+                    {f.type.includes('video') ? <FileVideo size={16} className="text-blue-400"/> : <FileImage size={16} className="text-purple-400"/>}
+                    <span className="text-sm text-gray-300 truncate max-w-[150px]">{f.name}</span>
+                    <button type="button" onClick={() => setFiles(files.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-300 ml-2"><X size={16}/></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <Button type="submit" className="w-full md:w-auto px-8 py-3 text-lg" disabled={isSubmitting}>
+            {isSubmitting ? 'Uploading & Submitting...' : 'Submit Complaint'}
+          </Button>
+        </form>
+      </Card>
+    </div>
+  );
+};
 
-            <div id="create-complaint-wrapper" class="hidden">
-                <div class="form-box">
-                    <h3>Submit a Ticket</h3>
-                    <form id="complaint-form">
-                        <input type="text" id="comp-ign" placeholder="Your In-Game Nickname" required>
-                        <input type="text" id="comp-against" placeholder="Complaint Against (User Name)" required>
-                        <textarea id="comp-desc" placeholder="Description: What happened?" rows="4" required></textarea>
-                        <input type="text" id="comp-proof" placeholder="Link to Proof (Screenshot/Video URL)" required>
-                        <button type="submit">Submit Complaint</button>
-                    </form>
+// 3. My Complaints Tab
+const MyComplaintsTab = () => {
+  const { user } = useContext(AuthContext);
+  const [complaints, setComplaints] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMyComplaints = async () => {
+      const snap = await getDocs(collection(db, 'complaints'));
+      const mine = [];
+      snap.forEach(doc => {
+        const data = doc.data();
+        if (data.uid === user.uid) mine.push(data);
+      });
+      mine.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setComplaints(mine);
+      setLoading(false);
+    };
+    fetchMyComplaints();
+  }, [user]);
+
+  if (loading) return <div className="text-center text-gray-400 py-10">Loading complaints...</div>;
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Clock className="text-blue-400"/> My Complaints</h2>
+      {complaints.length === 0 ? (
+        <Card className="p-10 text-center"><p className="text-gray-400">You haven't submitted any complaints yet.</p></Card>
+      ) : (
+        <div className="grid gap-4">
+          {complaints.map(comp => (
+            <Card key={comp.id} className="p-5 border-l-4 border-l-blue-500">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Complaint #{comp.complaintNumber}</h3>
+                  <p className="text-sm text-gray-400">Against: <span className="text-gray-200 font-medium">{comp.complaintAgainst}</span> | Date: {new Date(comp.createdAt).toLocaleDateString()}</p>
                 </div>
+                <div className={`px-3 py-1 rounded-full text-sm font-bold ${comp.status === 'pending' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'}`}>
+                  {comp.status === 'pending' ? 'Response Pending' : `Decision Of Administrator ${comp.repliedBy}`}
+                </div>
+              </div>
+              <p className="text-gray-300 text-sm mb-4 bg-gray-800/50 p-3 rounded-lg border border-gray-700/50">"{comp.description}"</p>
+              
+              {comp.status !== 'pending' && comp.adminReply && (
+                <div className="mt-4 bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-blue-400 font-semibold mb-2">
+                    <ShieldCheck size={18} /> Admin Response
+                  </div>
+                  <p className="text-gray-200">{comp.adminReply}</p>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 4. Contact Tab
+const ContactTab = () => (
+  <div className="animate-fade-in max-w-2xl mx-auto space-y-6 pt-10">
+    <Card className="p-8 text-center bg-gradient-to-b from-gray-800 to-gray-900">
+      <MessageSquare size={60} className="mx-auto text-indigo-400 mb-6" />
+      <h2 className="text-3xl font-bold text-white mb-4">Get in Touch</h2>
+      <p className="text-gray-400 mb-8">Need immediate assistance or want to join our community? Reach out through our official channels below.</p>
+      
+      <div className="flex flex-col sm:flex-row justify-center gap-4">
+        <a href="https://discord.gg/5AaDGYUd4T" target="_blank" className="flex items-center justify-center gap-3 px-6 py-3 bg-[#5865F2] hover:bg-[#4752C4] text-white rounded-xl font-bold transition-all shadow-lg shadow-[#5865F2]/30">
+           Discord Server
+        </a>
+        <a href="https://mail.google.com/mail/?view=cm&fs=1&to=gamerzroleplay@gmail.com" target="_blank" className="flex items-center justify-center gap-3 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-600/30">
+          <Mail size={20} /> Email Support
+        </a>
+      </div>
+    </Card>
+  </div>
+);
+
+// 5. Admin Area Tab
+const AdminAreaTab = () => {
+  const { userData } = useContext(AuthContext);
+  const { addToast } = useContext(ToastContext);
+  const [activeTab, setActiveTab] = useState('pending');
+  const [complaints, setComplaints] = useState({ pending: [], responded: [] });
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchComplaints = async () => {
+      const snap = await getDocs(collection(db, 'complaints'));
+      const pendingList = [];
+      const respondedList = [];
+      snap.forEach(doc => {
+        const data = doc.data();
+        if (data.status === 'pending') pendingList.push(data);
+        else respondedList.push(data);
+      });
+      pendingList.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      respondedList.sort((a, b) => new Date(b.repliedAt) - new Date(a.createdAt));
+      setComplaints({ pending: pendingList, responded: respondedList });
+      setLoading(false);
+    };
+    fetchComplaints();
+  }, [activeTab]);
+
+  const handleReply = async () => {
+    if (!replyText.trim()) { addToast("Reply cannot be empty", "error"); return; }
+    
+    try {
+      const compRef = doc(db, 'complaints', selectedComplaint.id);
+      await updateDoc(compRef, {
+        status: 'resolved',
+        adminReply: replyText,
+        repliedBy: userData.username,
+        repliedAt: new Date().toISOString()
+      });
+
+      const adminRef = doc(db, 'users', userData.uid);
+      const today = new Date().toISOString();
+      const newStats = {
+        respondedCount: (userData.stats?.respondedCount || 0) + 1,
+        startDate: userData.stats?.startDate || today,
+        endDate: today
+      };
+      await updateDoc(adminRef, { stats: newStats });
+
+      addToast("Reply submitted successfully.", "success");
+      setSelectedComplaint(null);
+      setReplyText('');
+      setComplaints(prev => ({
+        pending: prev.pending.filter(c => c.id !== selectedComplaint.id),
+        responded: [{...selectedComplaint, status: 'resolved', adminReply: replyText, repliedBy: userData.username}, ...prev.responded]
+      }));
+    } catch (err) {
+      addToast("Failed to submit reply.", "error");
+    }
+  };
+
+  const ComplaintList = ({ list }) => (
+    <div className="grid gap-3">
+      {list.length === 0 && <p className="text-gray-400 p-4 text-center">No complaints found.</p>}
+      {list.map(comp => (
+        <div key={comp.id} onClick={() => setSelectedComplaint(comp)} 
+             className="bg-gray-800/60 hover:bg-gray-700/80 border border-gray-700 p-4 rounded-xl cursor-pointer transition-all flex items-center justify-between group">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-blue-400 font-bold">#{comp.complaintNumber}</span>
+              <span className="text-white font-medium">{comp.username}</span>
             </div>
-        </section>
+            <p className="text-sm text-gray-400">Against: <span className="text-red-400">{comp.complaintAgainst}</span> | {new Date(comp.createdAt).toLocaleString()}</p>
+          </div>
+          <ChevronRight className="text-gray-500 group-hover:text-blue-400 transition-colors" />
+        </div>
+      ))}
+    </div>
+  );
 
-        <section id="global-chat" class="tab-content hidden">
-            <h2>Global Community Chat</h2>
-            <div class="chat-container">
-                <div id="chat-messages" class="chat-messages"></div>
-                <form id="chat-form" class="chat-input-area">
-                    <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off">
-                    <button type="submit"><i class="fas fa-paper-plane"></i></button>
-                </form>
-            </div>
-        </section>
+  if (loading) return <div className="text-center text-gray-400 py-10">Loading admin area...</div>;
 
-        <section id="my-complaints" class="tab-content hidden">
-            <h2>My History</h2>
-            <div id="my-complaints-list" class="list-container"></div>
-        </section>
+  return (
+    <div className="animate-fade-in relative">
+      <div className="flex border-b border-gray-700 mb-6">
+        <button onClick={() => setActiveTab('pending')} className={`px-6 py-3 font-semibold transition-all ${activeTab === 'pending' ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-gray-200'}`}>
+          Has to Respond Yet ({complaints.pending.length})
+        </button>
+        <button onClick={() => setActiveTab('responded')} className={`px-6 py-3 font-semibold transition-all ${activeTab === 'responded' ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-gray-200'}`}>
+          Has Responded ({complaints.responded.length})
+        </button>
+      </div>
 
-        <section id="contact" class="tab-content hidden">
-            <h2>Contact Us</h2>
-            <p>Stay Connected! Join our Discord community or send us an email for support.</p>
-            <div class="contact-buttons">
-                <a href="https://discord.gg/tX8AR9upfs" target="_blank" class="btn-contact discord">
-                    <i class="fab fa-discord"></i> Join Discord
-                </a>
-                <a href="https://mail.google.com/mail/?view=cm&fs=1&to=gamerzroleplay@gmail.com" target="_blank" class="btn-contact email">
-                    <i class="fas fa-envelope"></i> Send Email
-                </a>
-            </div>
-        </section>
+      <ComplaintList list={complaints[activeTab]} />
 
-        <section id="admin-area" class="tab-content hidden">
-            <h2>Admin Dashboard</h2>
-            <div class="admin-controls">
-                <button onclick="window.app.filterAdmin('pending')">Has to Respond Yet</button>
-                <button onclick="window.app.filterAdmin('resolved')">Has Responded</button>
-            </div>
-            <div id="admin-complaints-list" class="list-container"></div>
-        </section>
-
-        <section id="owner-panel" class="tab-content hidden">
-            <h2>Owner Control Panel</h2>
-
-            <div class="owner-section">
-                <h3>Grant Admin Powers</h3>
-                <form id="make-admin-form">
-                    <input type="text" id="admin-target" placeholder="Enter Username or Email" required>
-                    <button type="submit">Make Admin</button>
-                </form>
+      {selectedComplaint && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 md:p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-white">Complaint #{selectedComplaint.complaintNumber}</h2>
+              <button onClick={() => setSelectedComplaint(null)} className="text-gray-400 hover:text-white p-2 bg-gray-800 rounded-full"><X size={20}/></button>
             </div>
             
-            <div class="owner-section">
-                <h3>Revoke Powers</h3>
-                <input type="text" id="revoke-target" placeholder="Enter Username to Revoke">
-                <button type="button" class="btn-remove" onclick="window.app.removeAdminAccess()">
-                    Confirm Remove Admin Access
-                </button>
+            <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+              <div className="bg-gray-800 p-3 rounded-lg"><span className="text-gray-400 block mb-1">Reporter</span><span className="text-white font-medium">{selectedComplaint.username} ({selectedComplaint.gameNickname})</span></div>
+              <div className="bg-gray-800 p-3 rounded-lg"><span className="text-gray-400 block mb-1">Reported User</span><span className="text-red-400 font-bold">{selectedComplaint.complaintAgainst}</span></div>
+            </div>
+            
+            <div className="mb-6">
+              <h4 className="text-gray-300 font-medium mb-2">Description</h4>
+              <p className="bg-gray-800/50 p-4 rounded-lg text-gray-200 whitespace-pre-wrap">{selectedComplaint.description}</p>
             </div>
 
-            <div class="owner-section">
-                <h3>Admin Statistics</h3>
-                <div class="stats-controls">
-                    <button onclick="window.app.resetAdminStats()" class="danger-btn">Reset All Stats</button>
+            {selectedComplaint.mediaUrls && selectedComplaint.mediaUrls.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-gray-300 font-medium mb-2">Evidence</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  {selectedComplaint.mediaUrls.map((media, idx) => (
+                     media.type === 'video' ? 
+                     <video key={idx} src={media.url} controls className="w-full h-32 object-cover rounded-lg border border-gray-700 bg-black" /> :
+                     <a key={idx} href={media.url} target="_blank" rel="noreferrer"><img src={media.url} alt="evidence" className="w-full h-32 object-cover rounded-lg border border-gray-700 hover:opacity-80 transition-opacity" /></a>
+                  ))}
                 </div>
-                <table id="admin-stats-table">
-                    <thead>
-                        <tr>
-                            <th>Admin Name</th>
-                            <th>Complaints Handled</th>
-                            <th>Period</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
+              </div>
+            )}
 
-            <div class="owner-section">
-                <h3>System Admins List</h3>
-                <ul id="admin-users-list"></ul>
-            </div>
-        </section>
-
-    </div>
-
-    <div id="chat-context-menu" class="context-menu hidden">
-        <div class="menu-header">Manage Message</div>
-        <button onclick="window.app.handleMenuAction('delete')"><i class="fas fa-trash"></i> Delete Message</button>
-        <button onclick="window.app.handleMenuAction('mute')"><i class="fas fa-microphone-slash"></i> Mute User</button>
-        <button onclick="window.app.openTimeoutModal()"><i class="fas fa-clock"></i> Timeout User</button>
-    </div>
-
-    <div id="timeout-modal" class="modal-overlay hidden">
-        <div class="modal-box">
-            <h3>Select Timeout Duration</h3>
-            <div class="timeout-options">
-                <button onclick="window.app.handleMenuAction('timeout', 10)">10 Minutes</button>
-                <button onclick="window.app.handleMenuAction('timeout', 60)">1 Hour</button>
-                <button onclick="window.app.handleMenuAction('timeout', 1440)">24 Hours</button>
-                <button onclick="window.app.handleMenuAction('timeout', -1)">Remove Timeout</button>
-            </div>
-            <button class="cancel-btn" onclick="document.getElementById('timeout-modal').classList.add('hidden')">Cancel</button>
+            {activeTab === 'pending' ? (
+              <div className="space-y-3 mt-8 border-t border-gray-700 pt-6">
+                <h4 className="text-lg font-bold text-white flex items-center gap-2"><Settings size={18}/> Admin Action</h4>
+                <textarea 
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-500 min-h-[100px]"
+                  placeholder="Write your decision/response here..."
+                  value={replyText} onChange={e => setReplyText(e.target.value)}
+                />
+                <div className="flex justify-end gap-3">
+                  <Button variant="secondary" onClick={() => setSelectedComplaint(null)}>Cancel</Button>
+                  <Button onClick={handleReply} variant="success">Submit Decision</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 bg-emerald-900/20 border border-emerald-500/30 p-4 rounded-lg">
+                <h4 className="text-emerald-400 font-bold mb-2 text-sm uppercase tracking-wider">Replied by {selectedComplaint.repliedBy}</h4>
+                <p className="text-gray-200">{selectedComplaint.adminReply}</p>
+              </div>
+            )}
+          </Card>
         </div>
+      )}
     </div>
+  );
+};
 
-    <script type="module" src="app.js"></script>
+// 6. Owner Panel Tab
+const OwnerPanelTab = () => {
+  const { addToast } = useContext(ToastContext);
+  const [users, setUsers] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [targetUser, setTargetUser] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const fetchUsers = async () => {
+    const snap = await getDocs(collection(db, 'users'));
+    const allUsers = [];
+    const adminList = [];
+    snap.forEach(doc => {
+      const data = doc.data();
+      allUsers.push(data);
+      if (data.role === 'admin') adminList.push(data);
+    });
+    setUsers(allUsers);
+    setAdmins(adminList);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchUsers(); }, []);
+
+  const handleGrantRevoke = async (action) => {
+    const term = targetUser.toLowerCase().trim();
+    if (!term) { addToast("Enter username or email", "error"); return; }
+    
+    const userToUpdate = users.find(u => u.username.toLowerCase() === term || u.email.toLowerCase() === term);
+    if (!userToUpdate) { addToast("User not found", "error"); return; }
+    if (userToUpdate.role === 'owner') { addToast("Cannot modify an Owner", "error"); return; }
+
+    const newRole = action === 'grant' ? 'admin' : 'user';
+    if (userToUpdate.role === newRole) { addToast(`User is already ${newRole}`, "info"); return; }
+
+    try {
+      await updateDoc(doc(db, 'users', userToUpdate.uid), { role: newRole });
+      addToast(`Successfully updated ${userToUpdate.username} to ${newRole}`, "success");
+      setTargetUser('');
+      fetchUsers(); 
+    } catch (err) {
+      addToast("Failed to update user", "error");
+    }
+  };
+
+  const handleResetStats = async (adminUid, adminName) => {
+    try {
+      await updateDoc(doc(db, 'users', adminUid), { 
+        stats: { respondedCount: 0, startDate: null, endDate: null } 
+      });
+      addToast(`Stats reset for ${adminName}`, "success");
+      fetchUsers();
+    } catch (err) {
+      addToast("Failed to reset stats", "error");
+    }
+  };
+
+  const formatDate = (isoString) => {
+    if (!isoString) return 'N/A';
+    const d = new Date(isoString);
+    return `${d.getDate().toString().padStart(2,'0')}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getFullYear()}`;
+  };
+
+  if (loading) return <div className="text-center text-gray-400 py-10">Loading owner dashboard...</div>;
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="p-6">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><UserCog className="text-purple-400"/> Manage Roles</h3>
+          <p className="text-sm text-gray-400 mb-4">Grant or revoke Administrator privileges by entering a username or email address.</p>
+          <div className="space-y-4">
+            <Input value={targetUser} onChange={e => setTargetUser(e.target.value)} placeholder="Username or Email" />
+            <div className="flex gap-3">
+              <Button onClick={() => handleGrantRevoke('grant')} className="flex-1" variant="success">Grant Admin</Button>
+              <Button onClick={() => handleGrantRevoke('revoke')} className="flex-1" variant="danger">Revoke Admin</Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Users className="text-blue-400"/> Admin Stats</h3>
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            {admins.length === 0 && <p className="text-gray-400">No admins found.</p>}
+            {admins.map(admin => (
+              <div key={admin.uid} className="bg-gray-800 p-4 rounded-xl flex flex-col xl:flex-row justify-between xl:items-center gap-4 border border-gray-700">
+                <div>
+                  <p className="text-white font-bold">{admin.username}</p>
+                  <p className="text-sm text-gray-400">Complaints Resolved: <span className="text-blue-400 font-bold">{admin.stats?.respondedCount || 0}</span></p>
+                  <p className="text-xs text-gray-500 mt-1">Cycle: {formatDate(admin.stats?.startDate)} - {formatDate(admin.stats?.endDate)}</p>
+                </div>
+                <Button variant="secondary" onClick={() => handleResetStats(admin.uid, admin.username)} className="text-xs w-full xl:w-auto">Reset Stats</Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+
+// --- MAIN APP COMPONENT / ROUTER ---
+const AppContent = () => {
+  const { user, userData, logout } = useContext(AuthContext);
+  const [activeTab, setActiveTab] = useState('home');
+
+  if (!user) return <AuthPage />;
+  if (!userData) return <div className="min-h-screen flex items-center justify-center text-white"><Gamepad2 className="animate-spin text-blue-500 mr-3" size={32}/> Loading application data...</div>;
+
+  const tabs = [
+    { id: 'home', label: 'Create Complaint', icon: ShieldAlert },
+    { id: 'my-complaints', label: 'My Complaints', icon: Clock },
+    { id: 'contact', label: 'Contact Us', icon: MessageSquare },
+  ];
+
+  if (userData.role === 'admin' || userData.role === 'owner') {
+    tabs.push({ id: 'admin', label: 'Admin Area', icon: ShieldCheck });
+  }
+  if (userData.role === 'owner') {
+    tabs.push({ id: 'owner', label: 'Owner Panel', icon: UserCog });
+  }
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'home': return <HomeTab />;
+      case 'my-complaints': return <MyComplaintsTab />;
+      case 'contact': return <ContactTab />;
+      case 'admin': return <AdminAreaTab />;
+      case 'owner': return <OwnerPanelTab />;
+      default: return <HomeTab />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row font-sans">
+      {/* Sidebar */}
+      <aside className="w-full md:w-72 bg-gray-900/80 backdrop-blur-xl border-r border-gray-800 flex flex-col md:sticky md:top-0 md:h-screen z-40">
+        <div className="p-6 border-b border-gray-800 flex items-center gap-3">
+          <div className="bg-blue-500/20 p-2 rounded-lg">
+            <Gamepad2 className="text-blue-400" size={24} />
+          </div>
+          <h1 className="text-xl font-black text-white tracking-widest">GAMER RP</h1>
+        </div>
+        
+        <div className="p-5 border-b border-gray-800 bg-gray-900/40">
+          <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Logged in as</p>
+          <p className="text-white font-bold truncate text-lg">{userData.username}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`w-2.5 h-2.5 rounded-full shadow-lg ${userData.role === 'owner' ? 'bg-purple-500 shadow-purple-500/50' : userData.role === 'admin' ? 'bg-blue-500 shadow-blue-500/50' : 'bg-emerald-500 shadow-emerald-500/50'}`}></span>
+            <span className="text-xs text-gray-400 capitalize font-medium">{userData.role}</span>
+          </div>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-2">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all font-semibold ${
+                  isActive ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                }`}
+              >
+                <Icon size={20} className={isActive ? 'text-blue-400' : 'text-gray-500'} />
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="p-5 mt-auto border-t border-gray-800">
+          <button onClick={logout} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-colors font-bold">
+            <LogOut size={18} /> Secure Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Render Area */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full relative">
+        <div className="max-w-6xl mx-auto pb-10">
+          {renderTab()}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// --- INITIALIZATION ---
+const App = () => (
+  <ToastProvider>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  </ToastProvider>
+);
+
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+
+    </script>
 </body>
 </html>
